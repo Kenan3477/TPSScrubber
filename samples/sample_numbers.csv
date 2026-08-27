@@ -1,0 +1,6 @@
+name,phone,company
+Mobile one,07123456789,Example
+Mobile two,07123 456780,Example
+Duplicate of first,07123456789,Example
+Invalid row,not-a-number,Example
+Landline,020 7946 0958,Example

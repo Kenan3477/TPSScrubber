@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TPS Scrubber</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="top">
+        <div>
+          <p class="eyebrow">Telephone Preference Service</p>
+          <h1>TPS Scrubber</h1>
+        </div>
+        <p class="lede">
+          Upload a list, count the numbers, then check each one against the
+          public TPS register.
+        </p>
+      </header>
+
+      <section class="card" id="upload-card">
+        <label class="drop" id="drop-zone" for="file-input">
+          <input id="file-input" type="file" accept=".csv,.txt,.xlsx,.xlsm" hidden />
+          <strong>Upload your file</strong>
+          <span>CSV, TXT or Excel. One column of UK numbers is enough.</span>
+        </label>
+        <p class="hint" id="upload-error" hidden></p>
+      </section>
+
+      <section class="card hidden" id="preview-card">
+        <div class="row">
+          <div>
+            <p class="eyebrow">Ready to scan</p>
+            <h2 id="file-name">file.csv</h2>
+          </div>
+          <button class="ghost" id="reset-btn" type="button">Upload another</button>
+        </div>
+        <div class="stats" id="stats"></div>
+        <div class="actions">
+          <button class="primary" id="run-btn" type="button">Run TPS Scan</button>
+          <button class="ghost hidden" id="cancel-btn" type="button">Stop scan</button>
+        </div>
+        <div class="progress hidden" id="progress-wrap">
+          <div class="bar"><div class="fill" id="progress-fill"></div></div>
+          <p id="progress-label">Waiting…</p>
+        </div>
+        <p class="hint warn hidden" id="job-error"></p>
+      </section>
+
+      <section class="card hidden" id="results-card">
+        <p class="eyebrow">Results</p>
+        <h2>Download the two lists</h2>
+        <div class="downloads">
+          <a class="download on" id="dl-on" href="#">On TPS</a>
+          <a class="download off" id="dl-off" href="#">Not on TPS</a>
+          <a class="download muted" id="dl-fail" href="#">Failed / invalid</a>
+        </div>
+        <p class="hint" id="result-summary"></p>
+      </section>
+
+      <p class="footnote">
+        Each number is entered one at a time on the public
+        <em>Am I Registered?</em> page, then the page is loaded again for the
+        next number. The site may pause checks if you send too many. This is
+        not a licensed DMA TPS file.
+      </p>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
