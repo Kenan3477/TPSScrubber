@@ -5,17 +5,21 @@ import io
 from typing import Any
 
 
-def resolved_status(item: dict[str, Any], job: dict[str, Any]) -> str:
+def first_result(item: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
     if item["status"] != "duplicate":
-        return item["status"]
+        return item
     number = item.get("normalized")
     for other in job["items"]:
         if (
             other.get("normalized") == number
             and other["status"] in {"on_tps", "not_on_tps", "failed"}
         ):
-            return other["status"]
-    return "duplicate"
+            return other
+    return item
+
+
+def resolved_status(item: dict[str, Any], job: dict[str, Any]) -> str:
+    return first_result(item, job)["status"] if item["status"] == "duplicate" else item["status"]
 
 
 def rows_for_status(job: dict[str, Any], status: str) -> list[dict[str, str]]:
@@ -27,14 +31,15 @@ def rows_for_status(job: dict[str, Any], status: str) -> list[dict[str, str]]:
 
     rows: list[dict[str, str]] = []
     for item in job["items"]:
+        source = first_result(item, job)
         if resolved_status(item, job) != status:
             continue
         row = {
             "phone": item.get("normalized") or "",
             "original": item.get("original") or "",
             "tps_status": status,
-            "checked_at": item.get("checked_at") or "",
-            "message": item.get("message") or "",
+            "checked_at": source.get("checked_at") or "",
+            "message": source.get("message") or "",
         }
         for key in extra_keys:
             row[key] = (item.get("extra") or {}).get(key, "")
