@@ -118,19 +118,25 @@ function renderJob(job) {
   state.job = job;
   els.fileName.textContent = job.filename;
   const fields = job.phone_fields || [];
-  els.phoneFields.textContent = fields.length
-    ? `Checking: ${fields.join(", ")}`
-    : "";
-  show(els.phoneFields, fields.length > 0);
+  const filterBits = [];
+  if (fields.length) filterBits.push(`Checking: ${fields.join(", ")}`);
+  if (job.status_filter) {
+    filterBits.push(
+      `${job.status_filter} only (${job.status_field || "Status"})`
+    );
+  }
+  els.phoneFields.textContent = filterBits.join(" · ");
+  show(els.phoneFields, filterBits.length > 0);
   const s = job.stats;
-  els.stats.innerHTML = [
+  const cards = [
     stat("rows", s.rows),
     stat("to check", job.total_to_check),
     stat("invalid", s.invalid),
     stat("duplicates", s.duplicates),
-    stat("on TPS", s.on_tps),
-    stat("not on TPS", s.not_on_tps),
-  ].join("");
+  ];
+  if (s.skipped) cards.push(stat("not active", s.skipped));
+  cards.push(stat("on TPS", s.on_tps), stat("not on TPS", s.not_on_tps));
+  els.stats.innerHTML = cards.join("");
 
   const running = job.status === "running";
   const canRun =

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from app.parser import ParsedFile
+from app.parser import ParsedFile, is_active_status
 from app.progress import job_progress
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +38,13 @@ def create_job(filename: str, parsed: ParsedFile) -> dict[str, Any]:
     valid = 0
     invalid = 0
     duplicates = 0
+    skipped = 0
+    active_only = False
+    if parsed.status_field:
+        active_only = any(
+            is_active_status((row.fields or {}).get(parsed.status_field, ""))
+            for row in parsed.items
+        )
 
     for row in parsed.items:
         item = {
@@ -50,7 +57,12 @@ def create_job(filename: str, parsed: ParsedFile) -> dict[str, Any]:
             "message": "",
             "checked_at": None,
         }
-        if not row.normalized:
+        customer_status = (row.fields or {}).get(parsed.status_field, "") if parsed.status_field else ""
+        if active_only and not is_active_status(customer_status):
+            item["status"] = "skipped"
+            item["message"] = f"Not Active ({customer_status or 'empty'})"
+            skipped += 1
+        elif not row.normalized:
             item["status"] = "invalid"
             item["message"] = "Could not read a UK phone number"
             invalid += 1
@@ -78,6 +90,8 @@ def create_job(filename: str, parsed: ParsedFile) -> dict[str, Any]:
         "wait_reason": "",
         "original_headers": parsed.headers,
         "phone_fields": parsed.phone_fields,
+        "status_field": parsed.status_field,
+        "status_filter": "Active" if active_only else "",
         "source_rows": parsed.source_rows,
         "items": items,
         "stats": {
@@ -85,6 +99,7 @@ def create_job(filename: str, parsed: ParsedFile) -> dict[str, Any]:
             "valid": valid,
             "invalid": invalid,
             "duplicates": duplicates,
+            "skipped": skipped,
             "on_tps": 0,
             "not_on_tps": 0,
             "failed": 0,
@@ -134,6 +149,8 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "total_to_check": job["total_to_check"],
         "current_number": job["current_number"],
         "phone_fields": job.get("phone_fields") or [],
+        "status_field": job.get("status_field") or "",
+        "status_filter": job.get("status_filter") or "",
         "source_rows": job.get("source_rows", job["stats"].get("rows", 0)),
         "stats": job["stats"],
         "preview": preview,
@@ -150,6 +167,7 @@ def recount_stats(job: dict[str, Any]) -> None:
         "on_tps": 0,
         "not_on_tps": 0,
         "failed": 0,
+        "skipped": 0,
     }
     checked = 0
     for item in job["items"]:
@@ -158,6 +176,8 @@ def recount_stats(job: dict[str, Any]) -> None:
             stats["invalid"] += 1
         elif status == "duplicate":
             stats["duplicates"] += 1
+        elif status == "skipped":
+            stats["skipped"] += 1
         elif status in {"pending", "on_tps", "not_on_tps", "failed"}:
             stats["valid"] += 1
         if status == "on_tps":

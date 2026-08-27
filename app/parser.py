@@ -100,12 +100,21 @@ class ParsedRow:
     fields: dict[str, str] = field(default_factory=dict)
 
 
+STATUS_HEADER_EXACT = {
+    "status",
+    "accountstatus",
+    "customerstatus",
+    "contactstatus",
+}
+
+
 @dataclass
 class ParsedFile:
     headers: list[str]
     phone_fields: list[str]
     items: list[ParsedRow]
     source_rows: int
+    status_field: str = ""
 
 
 def re_header(value: str) -> str:
@@ -149,6 +158,22 @@ def _cell(value: object) -> str:
 
 def _looks_like_phone(value: str) -> bool:
     return normalize_uk_number(value) is not None
+
+
+def detect_status_field(headers: list[str]) -> str:
+    exact: list[str] = []
+    fuzzy: list[str] = []
+    for header in headers:
+        key = re_header(header)
+        if key in STATUS_HEADER_EXACT:
+            exact.append(header)
+        elif key.endswith("status") and "residential" not in key and "marital" not in key:
+            fuzzy.append(header)
+    return (exact or fuzzy or [""])[0]
+
+
+def is_active_status(value: str) -> bool:
+    return (value or "").strip().lower() == "active"
 
 
 def detect_phone_columns(headers: list[str], rows: list[list[str]]) -> list[int]:
@@ -276,7 +301,7 @@ def parse_number_file(filename: str, content: bytes) -> ParsedFile:
         headers, rows = _rows_from_txt(content)
 
     if not rows:
-        return ParsedFile(headers=[], phone_fields=[], items=[], source_rows=0)
+        return ParsedFile(headers=[], phone_fields=[], items=[], source_rows=0, status_field="")
 
     width = max(len(row) for row in rows)
     if headers:
@@ -287,6 +312,7 @@ def parse_number_file(filename: str, content: bytes) -> ParsedFile:
 
     phone_idxs = detect_phone_columns(headers, rows)
     phone_fields = [headers[idx] for idx in phone_idxs]
+    status_field = detect_status_field(headers)
     items: list[ParsedRow] = []
 
     for offset, row in enumerate(rows, start=2 if headers else 1):
@@ -328,4 +354,5 @@ def parse_number_file(filename: str, content: bytes) -> ParsedFile:
         phone_fields=phone_fields,
         items=items,
         source_rows=len(rows),
+        status_field=status_field,
     )

@@ -41,3 +41,14 @@ def test_detects_mobile_and_landline_in_crm_export():
     assert jane.fields["Postcode"] == "SW1A 1AA"
     assert jane.fields["Company"] == "Acme"
     assert jane.fields["Contact ID"] == "1001"
+
+
+def test_detects_status_field_not_residential_status():
+    parsed = parse_number_file(
+        "crm.csv",
+        b"Residential Status,Status,Mobile\n"
+        b"Home Owner,Active,07123456789\n"
+        b"Tenant,Inactive,07123456780\n",
+    )
+    assert parsed.status_field == "Status"
+    assert parsed.phone_fields == ["Mobile"]
