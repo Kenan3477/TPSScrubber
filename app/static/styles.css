@@ -83,6 +83,9 @@ h2 { font-size: 26px; }
   align-items: flex-start;
 }
 
+.fields { color: var(--muted); margin: 12px 0 0; }
+.fields b { color: var(--ink); }
+
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));

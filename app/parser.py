@@ -2,63 +2,204 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from openpyxl import load_workbook
 
-from app.numbers import normalize_uk_number
+from app.numbers import is_blank, normalize_uk_number
 
-PHONE_HEADERS = {
+PHONE_HEADER_EXACT = {
     "phone",
-    "phone_number",
-    "phonenumber",
     "telephone",
-    "telephone_number",
-    "tel",
     "mobile",
-    "mobile_number",
-    "number",
+    "landline",
+    "tel",
+    "cell",
+    "cellphone",
     "msisdn",
-    "contact",
-    "contact_number",
+    "ddi",
+    "switchboard",
+    "directdial",
+    "directline",
+    "workphone",
+    "homephone",
+    "mobilephone",
+    "mobilenumber",
+    "phonenumber",
+    "telephonenumber",
+    "contactnumber",
+    "contacttel",
+    "contactphone",
+}
+
+PHONE_HEADER_PARTS = (
+    "phone",
+    "telephone",
+    "mobile",
+    "landline",
+    "cellphone",
+    "msisdn",
+    "directdial",
+    "directline",
+    "ddi",
+)
+
+NEGATIVE_HEADERS = {
+    "id",
+    "email",
+    "e-mail",
+    "postcode",
+    "post_code",
+    "zip",
+    "date",
+    "amount",
+    "price",
+    "name",
+    "firstname",
+    "first_name",
+    "lastname",
+    "last_name",
+    "fullname",
+    "address",
+    "city",
+    "town",
+    "county",
+    "country",
+    "company",
+    "website",
+    "url",
+    "notes",
+    "comment",
+    "comments",
+    "owner",
+    "created",
+    "updated",
+    "status",
+    "title",
+    "job",
+    "jobtitle",
+    "invoice",
+    "account",
+    "reference",
+    "ref",
+    "value",
+    "balance",
+    "description",
+    "source",
 }
 
 
 @dataclass
 class ParsedRow:
     source_row: int
+    source_field: str
     original: str
     normalized: str | None
-    extra: dict[str, str] = field(default_factory=dict)
+    fields: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class ParsedFile:
+    headers: list[str]
+    phone_fields: list[str]
+    items: list[ParsedRow]
+    source_rows: int
+
+
+def re_header(value: str) -> str:
+    return "".join(ch for ch in (value or "").strip().lower() if ch.isalnum() or ch == "_")
+
+
+def header_phone_score(header: str) -> int:
+    raw = (header or "").strip().lower()
+    key = re_header(header)
+    if not key:
+        return 0
+    if key in PHONE_HEADER_EXACT:
+        return 100
+    if any(part in key for part in PHONE_HEADER_PARTS):
+        if any(bad in key for bad in ("email", "postcode", "invoice", "account")):
+            return 0
+        return 80
+    if re.search(r"\b(tel|mob|ddi)\b", raw):
+        return 70
+    return 0
+
+
+def header_is_negative(header: str) -> bool:
+    key = re_header(header)
+    raw = (header or "").strip().lower()
+    if key in NEGATIVE_HEADERS:
+        return True
+    return any(
+        token in raw.split()
+        for token in ("email", "postcode", "address", "website", "company", "owner")
+    )
+
+
+def _cell(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
 
 
 def _looks_like_phone(value: str) -> bool:
     return normalize_uk_number(value) is not None
 
 
-def _pick_phone_column(headers: list[str], sample_rows: list[list[str]]) -> int:
-    normalized = [re_header(h) for h in headers]
-    for idx, name in enumerate(normalized):
-        if name in PHONE_HEADERS:
-            return idx
+def detect_phone_columns(headers: list[str], rows: list[list[str]]) -> list[int]:
+    width = max(len(headers), max((len(row) for row in rows), default=0))
+    sample = rows[:80]
+    scored: list[tuple[int, int]] = []
 
-    best_idx = 0
-    best_hits = -1
-    width = max((len(row) for row in sample_rows), default=len(headers))
     for idx in range(width):
-        hits = 0
-        for row in sample_rows:
-            if idx < len(row) and _looks_like_phone(row[idx]):
-                hits += 1
+        header = headers[idx] if idx < len(headers) else ""
+        values = [
+            row[idx]
+            for row in sample
+            if idx < len(row) and not is_blank(row[idx])
+        ]
+        hits = sum(1 for value in values if _looks_like_phone(value))
+        ratio = (hits / len(values)) if values else 0.0
+        name_score = header_phone_score(header)
+
+        if header_is_negative(header) and name_score == 0:
+            continue
+        if name_score >= 70 and hits >= 1:
+            scored.append((idx, name_score + hits * 2))
+        elif name_score >= 40 and ratio >= 0.3 and hits >= 1:
+            scored.append((idx, name_score + hits * 2))
+        elif name_score == 0 and ratio >= 0.5 and hits >= 2:
+            scored.append((idx, hits * 2))
+
+    if scored:
+        scored.sort(key=lambda item: (-item[1], item[0]))
+        return [idx for idx, _ in scored]
+
+    best_idx = -1
+    best_hits = 0
+    for idx in range(width):
+        hits = sum(
+            1
+            for row in sample
+            if idx < len(row) and _looks_like_phone(row[idx])
+        )
         if hits > best_hits:
             best_hits = hits
             best_idx = idx
-    return best_idx
+    return [best_idx] if best_idx >= 0 and best_hits else []
 
 
-def re_header(value: str) -> str:
-    return "".join(ch for ch in (value or "").strip().lower() if ch.isalnum() or ch == "_")
+def _looks_like_header_row(row: list[str]) -> bool:
+    if not row:
+        return False
+    if any(header_phone_score(cell) or header_is_negative(cell) for cell in row):
+        return True
+    return not all(_looks_like_phone(cell) or is_blank(cell) for cell in row)
 
 
 def _rows_from_csv(content: bytes) -> tuple[list[str] | None, list[list[str]]]:
@@ -69,15 +210,12 @@ def _rows_from_csv(content: bytes) -> tuple[list[str] | None, list[list[str]]]:
     except csv.Error:
         dialect = csv.excel
     reader = csv.reader(io.StringIO(text), dialect)
-    rows = [row for row in reader if any(cell.strip() for cell in row)]
+    rows = [row for row in reader if any(_cell(cell) for cell in row)]
+    rows = [[_cell(cell) for cell in row] for row in rows]
     if not rows:
         return None, []
-    header_hits = sum(1 for cell in rows[0] if re_header(cell) in PHONE_HEADERS)
-    if header_hits or any(not _looks_like_phone(cell) and re_header(cell) for cell in rows[0]):
-        if any(re_header(cell) in PHONE_HEADERS or not _looks_like_phone(cell) for cell in rows[0]):
-            # Treat as header if any cell is clearly a label rather than a number.
-            if not all(_looks_like_phone(cell) or not cell.strip() for cell in rows[0]):
-                return [cell.strip() for cell in rows[0]], rows[1:]
+    if _looks_like_header_row(rows[0]):
+        return [cell or f"column_{idx + 1}" for idx, cell in enumerate(rows[0])], rows[1:]
     return None, rows
 
 
@@ -86,14 +224,14 @@ def _rows_from_xlsx(content: bytes) -> tuple[list[str] | None, list[list[str]]]:
     sheet = workbook.active
     rows: list[list[str]] = []
     for row in sheet.iter_rows(values_only=True):
-        values = ["" if cell is None else str(cell).strip() for cell in row]
+        values = [_cell(cell) for cell in row]
         if any(values):
             rows.append(values)
     workbook.close()
     if not rows:
         return None, []
-    if not all(_looks_like_phone(cell) or not cell for cell in rows[0]):
-        return [cell.strip() for cell in rows[0]], rows[1:]
+    if _looks_like_header_row(rows[0]):
+        return [cell or f"column_{idx + 1}" for idx, cell in enumerate(rows[0])], rows[1:]
     return None, rows
 
 
@@ -105,14 +243,14 @@ def _rows_from_txt(content: bytes) -> tuple[list[str] | None, list[list[str]]]:
         if not line:
             continue
         if "," in line or "\t" in line:
-            parts = [part.strip() for part in re_split_line(line)]
+            parts = [_cell(part) for part in re_split_line(line)]
             rows.append(parts)
         else:
             rows.append([line])
     if not rows:
         return None, []
-    if len(rows[0]) > 1 and not all(_looks_like_phone(cell) or not cell for cell in rows[0]):
-        return [cell.strip() for cell in rows[0]], rows[1:]
+    if len(rows[0]) > 1 and _looks_like_header_row(rows[0]):
+        return [cell or f"column_{idx + 1}" for idx, cell in enumerate(rows[0])], rows[1:]
     return None, rows
 
 
@@ -122,7 +260,13 @@ def re_split_line(line: str) -> list[str]:
     return next(csv.reader([line]))
 
 
-def parse_number_file(filename: str, content: bytes) -> list[ParsedRow]:
+def _default_headers(width: int) -> list[str]:
+    if width <= 1:
+        return ["phone"]
+    return [f"column_{idx + 1}" for idx in range(width)]
+
+
+def parse_number_file(filename: str, content: bytes) -> ParsedFile:
     suffix = Path(filename).suffix.lower()
     if suffix in {".xlsx", ".xlsm"}:
         headers, rows = _rows_from_xlsx(content)
@@ -132,24 +276,56 @@ def parse_number_file(filename: str, content: bytes) -> list[ParsedRow]:
         headers, rows = _rows_from_txt(content)
 
     if not rows:
-        return []
+        return ParsedFile(headers=[], phone_fields=[], items=[], source_rows=0)
 
-    phone_idx = _pick_phone_column(headers or [], rows[:25])
-    parsed: list[ParsedRow] = []
+    width = max(len(row) for row in rows)
+    if headers:
+        while len(headers) < width:
+            headers.append(f"column_{len(headers) + 1}")
+    else:
+        headers = _default_headers(width)
+
+    phone_idxs = detect_phone_columns(headers, rows)
+    phone_fields = [headers[idx] for idx in phone_idxs]
+    items: list[ParsedRow] = []
+
     for offset, row in enumerate(rows, start=2 if headers else 1):
-        original = row[phone_idx].strip() if phone_idx < len(row) else ""
-        extra: dict[str, str] = {}
-        if headers:
-            for idx, header in enumerate(headers):
-                if idx == phone_idx or not header:
-                    continue
-                extra[header] = row[idx] if idx < len(row) else ""
-        parsed.append(
-            ParsedRow(
-                source_row=offset,
-                original=original,
-                normalized=normalize_uk_number(original) if original else None,
-                extra=extra,
+        fields = {
+            header: (row[idx] if idx < len(row) else "")
+            for idx, header in enumerate(headers)
+            if header
+        }
+        found: list[ParsedRow] = []
+        for idx in phone_idxs:
+            header = headers[idx]
+            raw = row[idx] if idx < len(row) else ""
+            if is_blank(raw):
+                continue
+            found.append(
+                ParsedRow(
+                    source_row=offset,
+                    source_field=header,
+                    original=raw,
+                    normalized=normalize_uk_number(raw),
+                    fields=fields,
+                )
             )
-        )
-    return parsed
+        if found:
+            items.extend(found)
+        else:
+            items.append(
+                ParsedRow(
+                    source_row=offset,
+                    source_field=phone_fields[0] if phone_fields else "",
+                    original="",
+                    normalized=None,
+                    fields=fields,
+                )
+            )
+
+    return ParsedFile(
+        headers=headers,
+        phone_fields=phone_fields,
+        items=items,
+        source_rows=len(rows),
+    )

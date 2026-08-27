@@ -20,12 +20,12 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 ## Use
 
-1. Upload a CSV, TXT, or Excel file.
-2. Review how many numbers are valid, invalid, or duplicated.
+1. Upload a CSV, TXT, or Excel file. CRM exports with many columns are fine.
+2. The portal detects mobile and landline fields and shows how many numbers it will check.
 3. Click **Run TPS Scan**.
-4. Download `on_tps.csv` and `not_on_tps.csv` when it finishes.
+4. Download `on_tps.csv` and `not_on_tps.csv` when it finishes. Both files keep every original column, plus which number was checked.
 
-Numbers should include the leading zero. Spaces, `+44`, and `44` prefixes are cleaned automatically.
+It accepts leading zeros, missing zeros (`7487723751`), `+44`, `44`, and landlines such as `020` / `019` even when the 0 is missing. Excel values like `7487723751.0` are cleaned too.
 
 ## Settings
 

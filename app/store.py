@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from app.parser import ParsedRow
+from app.parser import ParsedFile
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
@@ -30,7 +30,7 @@ def _job_path(job_id: str) -> Path:
     return JOBS_DIR / f"{job_id}.json"
 
 
-def create_job(filename: str, rows: list[ParsedRow]) -> dict[str, Any]:
+def create_job(filename: str, parsed: ParsedFile) -> dict[str, Any]:
     ensure_dirs()
     seen: dict[str, int] = {}
     items: list[dict[str, Any]] = []
@@ -38,12 +38,13 @@ def create_job(filename: str, rows: list[ParsedRow]) -> dict[str, Any]:
     invalid = 0
     duplicates = 0
 
-    for row in rows:
+    for row in parsed.items:
         item = {
             "source_row": row.source_row,
+            "source_field": row.source_field,
             "original": row.original,
             "normalized": row.normalized,
-            "extra": row.extra,
+            "fields": row.fields,
             "status": "pending",
             "message": "",
             "checked_at": None,
@@ -71,9 +72,12 @@ def create_job(filename: str, rows: list[ParsedRow]) -> dict[str, Any]:
         "checked": 0,
         "total_to_check": valid,
         "current_number": None,
+        "original_headers": parsed.headers,
+        "phone_fields": parsed.phone_fields,
+        "source_rows": parsed.source_rows,
         "items": items,
         "stats": {
-            "rows": len(items),
+            "rows": parsed.source_rows,
             "valid": valid,
             "invalid": invalid,
             "duplicates": duplicates,
@@ -111,6 +115,7 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
             {
                 "original": item["original"],
                 "normalized": item["normalized"],
+                "source_field": item.get("source_field") or "",
                 "status": item["status"],
             }
         )
@@ -124,6 +129,8 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "checked": job["checked"],
         "total_to_check": job["total_to_check"],
         "current_number": job["current_number"],
+        "phone_fields": job.get("phone_fields") or [],
+        "source_rows": job.get("source_rows", job["stats"].get("rows", 0)),
         "stats": job["stats"],
         "preview": preview,
     }
@@ -157,6 +164,7 @@ def recount_stats(job: dict[str, Any]) -> None:
         elif status == "failed":
             stats["failed"] += 1
             checked += 1
+    stats["rows"] = job.get("source_rows", stats["rows"])
     job["stats"] = stats
     job["checked"] = checked
     job["total_to_check"] = stats["valid"]

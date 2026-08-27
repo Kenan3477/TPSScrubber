@@ -23,7 +23,7 @@
         <label class="drop" id="drop-zone" for="file-input">
           <input id="file-input" type="file" accept=".csv,.txt,.xlsx,.xlsm" hidden />
           <strong>Upload your file</strong>
-          <span>CSV, TXT or Excel. One column of UK numbers is enough.</span>
+          <span>CSV, TXT or Excel. CRM files are fine — mobile and landline columns are detected automatically.</span>
         </label>
         <p class="hint" id="upload-error" hidden></p>
       </section>
@@ -36,6 +36,7 @@
           </div>
           <button class="ghost" id="reset-btn" type="button">Upload another</button>
         </div>
+        <p class="fields hidden" id="phone-fields"></p>
         <div class="stats" id="stats"></div>
         <div class="actions">
           <button class="primary" id="run-btn" type="button">Run TPS Scan</button>

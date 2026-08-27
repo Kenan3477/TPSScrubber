@@ -11,6 +11,7 @@ const els = {
   resultsCard: document.getElementById("results-card"),
   fileName: document.getElementById("file-name"),
   stats: document.getElementById("stats"),
+  phoneFields: document.getElementById("phone-fields"),
   runBtn: document.getElementById("run-btn"),
   cancelBtn: document.getElementById("cancel-btn"),
   resetBtn: document.getElementById("reset-btn"),
@@ -39,6 +40,11 @@ function stat(label, value) {
 
 function renderJob(job) {
   els.fileName.textContent = job.filename;
+  const fields = job.phone_fields || [];
+  els.phoneFields.textContent = fields.length
+    ? `Checking: ${fields.join(", ")}`
+    : "";
+  show(els.phoneFields, fields.length > 0);
   const s = job.stats;
   els.stats.innerHTML = [
     stat("rows", s.rows),

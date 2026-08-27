@@ -1,6 +1,6 @@
-name,phone,company
-Mobile one,07123456789,Example
-Mobile two,07123 456780,Example
-Duplicate of first,07123456789,Example
-Invalid row,not-a-number,Example
-Landline,020 7946 0958,Example
+Contact ID,First Name,Last Name,Email,Company,Job Title,Address,City,Postcode,Mobile,Landline,Owner,Notes
+1001,Jane,Smith,jane@acme.test,Acme,Director,1 High St,London,SW1A 1AA,7487723751,020 7946 0958,Sam,Missing mobile zero
+1002,John,Jones,john@acme.test,Acme,Manager,2 High St,Leeds,LS1 1BA,+44 7123 456780,1912345678,Sam,+44 mobile and landline without zero
+1003,Pat,Lee,pat@acme.test,Acme,Analyst,3 High St,London,E1 6AN,07123456789,,Sam,Standard mobile
+1004,Pat,Lee,pat@acme.test,Acme,Analyst,3 High St,London,E1 6AN,07123456789,,Sam,Duplicate mobile
+1005,Alex,Brown,alex@acme.test,Acme,Intern,4 High St,London,N1 9GU,not-a-number,n/a,Sam,Unreadable

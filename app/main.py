@@ -39,13 +39,15 @@ async def upload_job(file: UploadFile = File(...)) -> dict:
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(400, "File is larger than 2 MB.")
 
-    rows = parse_number_file(filename, content)
-    if not rows:
+    parsed = parse_number_file(filename, content)
+    if not parsed.source_rows:
         raise HTTPException(400, "No rows found in that file.")
-    if len(rows) > MAX_ROWS:
+    if parsed.source_rows > MAX_ROWS:
         raise HTTPException(400, f"This portal accepts up to {MAX_ROWS} rows per file.")
+    if not parsed.phone_fields:
+        raise HTTPException(400, "Could not find a mobile or landline column in that file.")
 
-    job = create_job(filename, rows)
+    job = create_job(filename, parsed)
     return public_job(job)
 
 
