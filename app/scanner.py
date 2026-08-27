@@ -20,8 +20,18 @@ SEND_ERROR_TEXT = "problem during sending"
 
 MIN_COOLDOWN = 30
 MAX_COOLDOWN = 180
+MAX_CONSECUTIVE_LIMITS = 6
+RATE_LIMIT_PAUSE_MESSAGE = (
+    "TPS blocked further checks from this connection. "
+    "The public page will not accept more lookups right now. "
+    "Wait a while and click Resume, or run the portal on your own computer."
+)
 
 _scan_lock = threading.Lock()
+
+
+def is_scan_running() -> bool:
+    return _scan_lock.locked()
 
 
 def delay_seconds() -> float:
@@ -110,7 +120,7 @@ def _cancelled(job_id: str, should_stop: Callable[[], bool] | None) -> bool:
     if should_stop and should_stop():
         return True
     fresh = load_job(job_id)
-    return bool(fresh and fresh.get("status") == "cancelled")
+    return bool(fresh and fresh.get("status") in {"cancelled", "paused"})
 
 
 def _clear_wait(job: dict[str, Any]) -> None:
@@ -173,6 +183,7 @@ def run_job(job_id: str, should_stop: Callable[[], bool] | None = None) -> None:
         gap = delay_seconds()
         cooldown = MIN_COOLDOWN
         successes = 0
+        consecutive_limits = 0
 
         for index in range(len(job["items"])):
             while True:
@@ -207,6 +218,15 @@ def run_job(job_id: str, should_stop: Callable[[], bool] | None = None) -> None:
 
                 if status == "rate_limited":
                     successes = 0
+                    consecutive_limits += 1
+                    if consecutive_limits >= MAX_CONSECUTIVE_LIMITS:
+                        job["status"] = "paused"
+                        job["error"] = RATE_LIMIT_PAUSE_MESSAGE
+                        job["current_number"] = None
+                        _clear_wait(job)
+                        recount_stats(job)
+                        save_job(job)
+                        return
                     job["error"] = ""
                     job["current_number"] = mask_number(number)
                     save_job(job)
@@ -217,7 +237,8 @@ def run_job(job_id: str, should_stop: Callable[[], bool] | None = None) -> None:
                         should_stop,
                     ):
                         job = load_job(job_id) or job
-                        job["status"] = "cancelled"
+                        if job.get("status") != "paused":
+                            job["status"] = "cancelled"
                         job["current_number"] = None
                         _clear_wait(job)
                         save_job(job)
@@ -233,6 +254,7 @@ def run_job(job_id: str, should_stop: Callable[[], bool] | None = None) -> None:
                     item["message"] = message
                 item["checked_at"] = utc_now()
                 successes += 1
+                consecutive_limits = 0
                 if successes >= 3:
                     cooldown = max(MIN_COOLDOWN, int(cooldown * 0.8))
                 recount_stats(job)

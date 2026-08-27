@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -9,8 +10,15 @@ from fastapi.staticfiles import StaticFiles
 
 from app.exports import csv_bytes, rows_for_status
 from app.parser import parse_number_file
-from app.scanner import run_job
-from app.store import create_job, load_job, public_job, save_job, utc_now
+from app.scanner import is_scan_running, run_job
+from app.store import (
+    create_job,
+    load_job,
+    pause_stale_running_jobs,
+    public_job,
+    save_job,
+    utc_now,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -18,7 +26,13 @@ MAX_SOURCE_ROWS = 20000
 MAX_NUMBERS = 20000
 ALLOWED_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm"}
 
-app = FastAPI(title="TPS Scrubber")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    pause_stale_running_jobs()
+    yield
+
+
+app = FastAPI(title="TPS Scrubber", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -72,7 +86,7 @@ def start_job(job_id: str) -> dict:
     job = load_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found.")
-    if job["status"] == "running":
+    if job["status"] == "running" and is_scan_running():
         raise HTTPException(409, "This scan is already running.")
     if job["stats"]["valid"] == 0:
         raise HTTPException(400, "There are no valid UK numbers to check.")

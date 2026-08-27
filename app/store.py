@@ -119,6 +119,37 @@ def save_job(job: dict[str, Any]) -> None:
         tmp.replace(path)
 
 
+def iter_jobs() -> list[dict[str, Any]]:
+    ensure_dirs()
+    jobs: list[dict[str, Any]] = []
+    for path in sorted(JOBS_DIR.glob("*.json")):
+        if path.suffixes[-1:] == [".json"] and path.name.endswith(".tmp"):
+            continue
+        try:
+            with _lock:
+                jobs.append(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return jobs
+
+
+def pause_stale_running_jobs() -> int:
+    count = 0
+    for job in iter_jobs():
+        if job.get("status") != "running":
+            continue
+        job["status"] = "paused"
+        job["error"] = (
+            "Scan stopped because the server restarted. Click Resume TPS Scan to continue."
+        )
+        job["current_number"] = None
+        job["wait_until"] = None
+        job["wait_reason"] = ""
+        save_job(job)
+        count += 1
+    return count
+
+
 def load_job(job_id: str) -> dict[str, Any] | None:
     path = _job_path(job_id)
     if not path.exists():

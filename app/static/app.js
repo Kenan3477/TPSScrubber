@@ -100,7 +100,9 @@ function renderProgress(job) {
       ? `Checking ${job.current_number} · ${job.checked} of ${job.total_to_check}`
       : `Starting scan · ${job.checked} of ${job.total_to_check}`;
   } else if (job.status === "paused") {
-    els.progressLabel.textContent = `Paused at ${job.checked} of ${job.total_to_check}`;
+    els.progressLabel.textContent = job.checked
+      ? `Paused at ${job.checked} of ${job.total_to_check}`
+      : "Paused — TPS blocked this connection before any numbers were checked";
   } else if (job.status === "complete") {
     els.progressLabel.textContent = `Finished ${job.checked} of ${job.total_to_check}`;
   }
