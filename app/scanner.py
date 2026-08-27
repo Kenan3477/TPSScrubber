@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -17,14 +18,17 @@ NOT_REGISTERED_TEXT = "Phone number is not registered"
 LIMIT_TEXT = "exceeded the limit"
 SEND_ERROR_TEXT = "problem during sending"
 
+MIN_COOLDOWN = 30
+MAX_COOLDOWN = 180
+
 _scan_lock = threading.Lock()
 
 
 def delay_seconds() -> float:
     try:
-        return max(1.0, float(os.getenv("TPS_DELAY_SECONDS", "3.5")))
+        return max(0.4, float(os.getenv("TPS_DELAY_SECONDS", "1.0")))
     except ValueError:
-        return 3.5
+        return 1.0
 
 
 def _dismiss_overlays(page: Any) -> None:
@@ -55,7 +59,7 @@ def _page_text(page: Any) -> str:
 
 def _classify_result(text: str) -> tuple[str, str]:
     if LIMIT_TEXT in text:
-        return "rate_limited", "TPS public checker rate limit reached. Wait and resume later."
+        return "rate_limited", "TPS public checker rate limit reached."
     if SEND_ERROR_TEXT in text:
         return "failed", "TPS page reported a problem sending the check."
     if REGISTERED_TEXT in text and NOT_REGISTERED_TEXT not in text:
@@ -102,6 +106,49 @@ def _open_browser():
     return playwright, browser, context, page
 
 
+def _cancelled(job_id: str, should_stop: Callable[[], bool] | None) -> bool:
+    if should_stop and should_stop():
+        return True
+    fresh = load_job(job_id)
+    return bool(fresh and fresh.get("status") == "cancelled")
+
+
+def _clear_wait(job: dict[str, Any]) -> None:
+    job["wait_until"] = None
+    job["wait_reason"] = ""
+
+
+def wait_or_cancel(
+    job_id: str,
+    seconds: float,
+    reason: str,
+    should_stop: Callable[[], bool] | None = None,
+) -> bool:
+    """Sleep while keeping the job cancellable. Returns False if cancelled."""
+    if seconds <= 0:
+        return not _cancelled(job_id, should_stop)
+
+    until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
+    job = load_job(job_id)
+    if not job:
+        return False
+    if reason:
+        job["wait_until"] = until.isoformat()
+        job["wait_reason"] = reason
+        save_job(job)
+
+    while datetime.now(timezone.utc) < until:
+        if _cancelled(job_id, should_stop):
+            return False
+        time.sleep(0.4)
+
+    job = load_job(job_id)
+    if job:
+        _clear_wait(job)
+        save_job(job)
+    return not _cancelled(job_id, should_stop)
+
+
 def run_job(job_id: str, should_stop: Callable[[], bool] | None = None) -> None:
     if not _scan_lock.acquire(blocking=False):
         job = load_job(job_id)
@@ -118,70 +165,100 @@ def run_job(job_id: str, should_stop: Callable[[], bool] | None = None) -> None:
             return
         job["status"] = "running"
         job["error"] = ""
+        job["started_at"] = job.get("started_at") or utc_now()
+        _clear_wait(job)
         save_job(job)
 
         playwright, browser, context, page = _open_browser()
-        wait = delay_seconds()
+        gap = delay_seconds()
+        cooldown = MIN_COOLDOWN
+        successes = 0
 
-        for item in job["items"]:
-            fresh = load_job(job_id)
-            if fresh and fresh.get("status") == "cancelled":
-                job["status"] = "cancelled"
-                job["current_number"] = None
+        for index in range(len(job["items"])):
+            while True:
+                job = load_job(job_id)
+                if not job:
+                    return
+                if _cancelled(job_id, should_stop):
+                    job["status"] = "cancelled"
+                    job["current_number"] = None
+                    _clear_wait(job)
+                    save_job(job)
+                    return
+
+                item = job["items"][index]
+                if item["status"] != "pending":
+                    break
+
+                number = item["normalized"]
+                job["current_number"] = mask_number(number)
+                job["error"] = ""
+                _clear_wait(job)
                 save_job(job)
-                return
-            if should_stop and should_stop():
-                job["status"] = "cancelled"
-                job["current_number"] = None
-                save_job(job)
-                return
-            if item["status"] != "pending":
-                continue
 
-            number = item["normalized"]
-            job["current_number"] = mask_number(number)
-            save_job(job)
+                status = "failed"
+                message = ""
+                try:
+                    status, message = check_one_number(page, number)
+                except PlaywrightTimeout:
+                    status, message = "failed", "Timed out waiting for the TPS result page."
+                except Exception as exc:
+                    status, message = "failed", f"Browser check failed: {exc.__class__.__name__}"
 
-            status = "failed"
-            message = ""
-            try:
-                status, message = check_one_number(page, number)
-            except PlaywrightTimeout:
-                status, message = "failed", "Timed out waiting for the TPS result page."
-            except Exception as exc:
-                status, message = "failed", f"Browser check failed: {exc.__class__.__name__}"
+                if status == "rate_limited":
+                    successes = 0
+                    job["error"] = ""
+                    job["current_number"] = mask_number(number)
+                    save_job(job)
+                    if not wait_or_cancel(
+                        job_id,
+                        cooldown,
+                        f"TPS rate limit — waiting {int(cooldown)}s, then continuing",
+                        should_stop,
+                    ):
+                        job = load_job(job_id) or job
+                        job["status"] = "cancelled"
+                        job["current_number"] = None
+                        _clear_wait(job)
+                        save_job(job)
+                        return
+                    cooldown = min(MAX_COOLDOWN, int(cooldown * 1.5) or MIN_COOLDOWN)
+                    continue
 
-            if status == "rate_limited":
-                item["status"] = "pending"
-                item["message"] = message
-                job["status"] = "paused"
-                job["error"] = message
-                job["current_number"] = None
+                if status == "unknown":
+                    item["status"] = "failed"
+                    item["message"] = "Could not read a clear result from the TPS page."
+                else:
+                    item["status"] = status
+                    item["message"] = message
+                item["checked_at"] = utc_now()
+                successes += 1
+                if successes >= 3:
+                    cooldown = max(MIN_COOLDOWN, int(cooldown * 0.8))
                 recount_stats(job)
                 save_job(job)
-                return
+                if not wait_or_cancel(job_id, gap, "", should_stop):
+                    job = load_job(job_id) or job
+                    job["status"] = "cancelled"
+                    job["current_number"] = None
+                    _clear_wait(job)
+                    save_job(job)
+                    return
+                break
 
-            if status == "unknown":
-                item["status"] = "failed"
-                item["message"] = "Could not read a clear result from the TPS page."
-            else:
-                item["status"] = status
-                item["message"] = message
-            item["checked_at"] = utc_now()
-            recount_stats(job)
-            save_job(job)
-            time.sleep(wait)
-
+        job = load_job(job_id) or job
         recount_stats(job)
         job["status"] = "complete"
         job["current_number"] = None
         job["error"] = ""
+        _clear_wait(job)
         save_job(job)
     except Exception as exc:
         job = load_job(job_id) or {"id": job_id, "items": []}
         job["status"] = "failed"
         job["error"] = f"Scan stopped: {exc}"
         job["current_number"] = None
+        _clear_wait(job)
         save_job(job)
     finally:
         for closer in (page, context, browser):

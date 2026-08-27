@@ -23,7 +23,7 @@
         <label class="drop" id="drop-zone" for="file-input">
           <input id="file-input" type="file" accept=".csv,.txt,.xlsx,.xlsm" hidden />
           <strong>Upload your file</strong>
-          <span>CSV, TXT or Excel. CRM files are fine — mobile and landline columns are detected automatically.</span>
+          <span>CSV, TXT or Excel. CRM files are fine — up to 20,000 numbers. Mobile and landline columns are detected automatically.</span>
         </label>
         <p class="hint" id="upload-error" hidden></p>
       </section>
@@ -43,8 +43,10 @@
           <button class="ghost hidden" id="cancel-btn" type="button">Stop scan</button>
         </div>
         <div class="progress hidden" id="progress-wrap">
-          <div class="bar"><div class="fill" id="progress-fill"></div></div>
+          <div class="eta" id="eta-label">About — left</div>
+          <div class="bar time"><div class="fill" id="progress-fill"></div></div>
           <p id="progress-label">Waiting…</p>
+          <p class="eta-sub" id="eta-sub"></p>
         </div>
         <p class="hint warn hidden" id="job-error"></p>
       </section>
@@ -63,8 +65,8 @@
       <p class="footnote">
         Each number is entered one at a time on the public
         <em>Am I Registered?</em> page, then the page is loaded again for the
-        next number. The site may pause checks if you send too many. This is
-        not a licensed DMA TPS file.
+        next number. If the site rate-limits, the scan waits and continues
+        on its own. This is not a licensed DMA TPS file.
       </p>
     </div>
     <script src="/static/app.js"></script>

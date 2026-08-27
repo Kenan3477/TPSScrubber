@@ -10,11 +10,12 @@ from fastapi.staticfiles import StaticFiles
 from app.exports import csv_bytes, rows_for_status
 from app.parser import parse_number_file
 from app.scanner import run_job
-from app.store import create_job, load_job, public_job, save_job
+from app.store import create_job, load_job, public_job, save_job, utc_now
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024
-MAX_ROWS = 2000
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_SOURCE_ROWS = 20000
+MAX_NUMBERS = 20000
 ALLOWED_SUFFIXES = {".csv", ".txt", ".xlsx", ".xlsm"}
 
 app = FastAPI(title="TPS Scrubber")
@@ -37,13 +38,20 @@ async def upload_job(file: UploadFile = File(...)) -> dict:
     if not content:
         raise HTTPException(400, "The file is empty.")
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(400, "File is larger than 2 MB.")
+        raise HTTPException(400, "File is larger than 25 MB.")
 
     parsed = parse_number_file(filename, content)
     if not parsed.source_rows:
         raise HTTPException(400, "No rows found in that file.")
-    if parsed.source_rows > MAX_ROWS:
-        raise HTTPException(400, f"This portal accepts up to {MAX_ROWS} rows per file.")
+    if parsed.source_rows > MAX_SOURCE_ROWS:
+        raise HTTPException(
+            400, f"This portal accepts up to {MAX_SOURCE_ROWS:,} rows per file."
+        )
+    unique_numbers = len({row.normalized for row in parsed.items if row.normalized})
+    if unique_numbers > MAX_NUMBERS:
+        raise HTTPException(
+            400, f"This portal accepts up to {MAX_NUMBERS:,} phone numbers per file."
+        )
     if not parsed.phone_fields:
         raise HTTPException(400, "Could not find a mobile or landline column in that file.")
 
@@ -74,6 +82,7 @@ def start_job(job_id: str) -> dict:
 
     job["status"] = "running"
     job["error"] = ""
+    job["started_at"] = job.get("started_at") or utc_now()
     save_job(job)
     thread = threading.Thread(target=run_job, args=(job_id,), daemon=True)
     thread.start()
@@ -89,6 +98,8 @@ def cancel_job(job_id: str) -> dict:
         raise HTTPException(400, "This scan is not running.")
     job["status"] = "cancelled"
     job["current_number"] = None
+    job["wait_until"] = None
+    job["wait_reason"] = ""
     save_job(job)
     return public_job(job)
 

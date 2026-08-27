@@ -27,9 +27,11 @@ Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 It accepts leading zeros, missing zeros (`7487723751`), `+44`, `44`, and landlines such as `020` / `019` even when the 0 is missing. Excel values like `7487723751.0` are cleaned too.
 
+Uploads can be up to 20,000 rows / 20,000 numbers (25 MB). If the public TPS page rate-limits, the scan waits and continues automatically. The portal shows how many are done and how much time is left.
+
 ## Settings
 
-- `TPS_DELAY_SECONDS` — pause between checks (default `3.5`)
+- `TPS_DELAY_SECONDS` — pause between successful checks (default `1.0`)
 - `TPS_HEADED=1` — show the browser window while it works
 
 ## Tests

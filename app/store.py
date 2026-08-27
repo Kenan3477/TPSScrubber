@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.parser import ParsedFile
+from app.progress import job_progress
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / "data"
@@ -72,6 +73,9 @@ def create_job(filename: str, parsed: ParsedFile) -> dict[str, Any]:
         "checked": 0,
         "total_to_check": valid,
         "current_number": None,
+        "started_at": None,
+        "wait_until": None,
+        "wait_reason": "",
         "original_headers": parsed.headers,
         "phone_fields": parsed.phone_fields,
         "source_rows": parsed.source_rows,
@@ -133,6 +137,7 @@ def public_job(job: dict[str, Any]) -> dict[str, Any]:
         "source_rows": job.get("source_rows", job["stats"].get("rows", 0)),
         "stats": job["stats"],
         "preview": preview,
+        **job_progress(job),
     }
 
 

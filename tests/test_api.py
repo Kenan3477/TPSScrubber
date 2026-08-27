@@ -20,6 +20,17 @@ def test_upload_counts_valid_invalid_and_duplicates():
     assert data["status"] == "ready"
 
 
+def test_accepts_more_than_two_thousand_rows():
+    content = "phone\n" + ("07123456789\n" * 2100)
+    response = client.post(
+        "/api/jobs",
+        files={"file": ("big.csv", content.encode(), "text/csv")},
+    )
+    assert response.status_code == 200
+    assert response.json()["stats"]["rows"] == 2100
+    assert response.json()["total_to_check"] == 1
+
+
 def test_rejects_empty_file():
     response = client.post(
         "/api/jobs",
